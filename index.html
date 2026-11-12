@@ -237,15 +237,25 @@ footer.note{margin-top:30px; padding-top:16px; border-top:1px solid var(--border
 
 <section id="remarks">
   <h2>บันทึกหมายเหตุจากหน้างาน</h2>
-  <div class="section-sub">รวม <span id="remarkTotal"></span> รายการทุกเดือน (Recloser และ Capacitor) — พิมพ์คำค้นเพื่อกรอง (แสดงสูงสุด 300 แถวแรกที่ตรงเงื่อนไข)</div>
+  <div class="section-sub">รวม <span id="remarkTotal"></span> รายการทุกเดือน (Recloser และ Capacitor) — พิมพ์คำค้นเพื่อกรอง (แสดงทีละ 300 แถว — กด "แสดงเพิ่ม" ท้ายตาราง)</div>
   <div class="panel">
     <div class="filters">
-      <input type="search" id="remarkSearch" placeholder="ค้นหารหัสอุปกรณ์ / ข้อความหมายเหตุ…">
+      <input type="search" id="remarkSearch" placeholder="ค้นหาทุกคอลัมน์ (รหัส / สถานที่ / หมายเหตุ…)">
+      <button type="button" class="btn-clear" id="remarkClear">ล้างตัวกรอง</button>
       <span class="count-tag" id="remarkCount"></span>
     </div>
     <div class="table-scroll" id="remarkScroll">
       <table>
-        <thead><tr><th>ประเภท</th><th>รหัสอุปกรณ์</th><th>กฟจ.</th><th>กฟฟ.</th><th>สถานที่</th><th>เดือน</th><th>หมายเหตุ</th></tr></thead>
+        <thead class="hasf"><tr><th>ประเภท</th><th>รหัสอุปกรณ์</th><th>กฟจ.</th><th>กฟฟ.</th><th>สถานที่</th><th>เดือน</th><th>หมายเหตุ</th></tr>
+        <tr class="frow">
+          <th><select id="rEquip"><option value="">ทั้งหมด</option><option value="Recloser">Recloser</option><option value="Capacitor">Capacitor</option></select></th>
+          <th><input type="search" id="rCode" placeholder="รหัส…"></th>
+          <th><select id="rDist"><option value="">ทั้งหมด</option></select></th>
+          <th><select id="rOffice"><option value="">ทั้งหมด</option></select></th>
+          <th><input type="search" id="rLoc" placeholder="สถานที่…"></th>
+          <th><select id="rMonth"><option value="">ทั้งหมด</option></select></th>
+          <th><input type="search" id="rText" placeholder="ข้อความหมายเหตุ…"></th>
+        </tr></thead>
         <tbody id="remarkBody"></tbody>
       </table>
     </div>
@@ -542,14 +552,40 @@ footer.note{margin-top:30px; padding-top:16px; border-top:1px solid var(--border
 
   /* ---------- Remarks table (searchable, capped render) ---------- */
   var remarkRows = DATA.remarks.slice().sort(byMonthDesc);
-  var REMARK_CAP = 300;
+  var REMARK_STEP = 300, remarkCap = REMARK_STEP;
+  function uniqR(key, f){ var s={}; remarkRows.forEach(function(r){ if(!f||f(r)) s[r[key]]=1; }); return Object.keys(s); }
+  function fillSelR(sel, vals, keep){
+    var cur = keep ? sel.value : '';
+    while(sel.options.length>1) sel.remove(1);
+    vals.forEach(function(v){ var o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+    sel.value = vals.indexOf(cur)>=0 ? cur : '';
+  }
+  var th = function(a,b){return a.localeCompare(b,'th');};
+  fillSelR(document.getElementById('rDist'), uniqR('dist').sort(th));
+  fillSelR(document.getElementById('rMonth'), DATA.months.filter(function(m){return remarkRows.some(function(r){return r.month===m;});}));
+  function refreshROffices(){
+    var d = document.getElementById('rDist').value;
+    fillSelR(document.getElementById('rOffice'), uniqR('office', d ? function(r){return r.dist===d;} : null).sort(th), true);
+  }
+  refreshROffices();
+  function hasR(v,q){ return !q || String(v==null?'':v).toLowerCase().indexOf(q)!==-1; }
   function renderRemarks(){
-    var q = document.getElementById('remarkSearch').value.trim().toLowerCase();
-    var filtered = q ? remarkRows.filter(function(r){
-      return (r.code||'').toLowerCase().indexOf(q)!==-1 || (r.remark||'').toLowerCase().indexOf(q)!==-1 || (r.office||'').toLowerCase().indexOf(q)!==-1;
-    }) : remarkRows;
-    document.getElementById('remarkCount').textContent = (q? filtered.length+' ตรงเงื่อนไข' : 'ทั้งหมด '+filtered.length) + (filtered.length>REMARK_CAP ? ' (แสดง '+REMARK_CAP+' แถวแรก)' : '');
-    var shown = filtered.slice(0, REMARK_CAP);
+    var g = function(id){ return document.getElementById(id).value.trim().toLowerCase(); };
+    var q=g('remarkSearch'), fEquip=document.getElementById('rEquip').value, fDist=document.getElementById('rDist').value,
+        fOffice=document.getElementById('rOffice').value, fMonth=document.getElementById('rMonth').value,
+        fCode=g('rCode'), fLoc=g('rLoc'), fText=g('rText');
+    var filtered = remarkRows.filter(function(r){
+      if(fEquip && (r.equip||'Recloser')!==fEquip) return false;
+      if(fDist && r.dist!==fDist) return false;
+      if(fOffice && r.office!==fOffice) return false;
+      if(fMonth && r.month!==fMonth) return false;
+      if(!hasR(r.code,fCode) || !hasR(r.loc,fLoc) || !hasR(r.remark,fText)) return false;
+      if(q && !hasR([r.code,r.loc,r.dist,r.office,r.month,r.equip,r.remark].join(' '), q)) return false;
+      return true;
+    });
+    var isFiltered = filtered.length !== remarkRows.length;
+    document.getElementById('remarkCount').textContent = (isFiltered ? filtered.length+' / '+remarkRows.length : 'ทั้งหมด '+filtered.length) + ' รายการ';
+    var shown = filtered.slice(0, remarkCap);
     var body = document.getElementById('remarkBody');
     if(shown.length===0){
       body.innerHTML = '<tr><td colspan="7"><div class="empty-state">ไม่พบหมายเหตุที่ตรงเงื่อนไข</div></td></tr>';
@@ -565,9 +601,20 @@ footer.note{margin-top:30px; padding-top:16px; border-top:1px solid var(--border
         '<td class="nowrap">'+esc(r.month)+'</td>'+
         '<td>'+esc(r.remark)+'</td>'+
         '</tr>';
-    }).join('');
+    }).join('') + (filtered.length>shown.length
+      ? '<tr><td colspan="7" style="text-align:center"><button type="button" class="btn-clear" id="remarkMore">แสดงเพิ่ม (เหลืออีก '+(filtered.length-shown.length)+' รายการ)</button></td></tr>' : '');
+    var mb = document.getElementById('remarkMore');
+    if(mb) mb.addEventListener('click', function(){ remarkCap += REMARK_STEP; renderRemarks(); });
   }
-  document.getElementById('remarkSearch').addEventListener('input', renderRemarks);
+  function resetCap(){ remarkCap = REMARK_STEP; renderRemarks(); }
+  ['rEquip','rOffice','rMonth'].forEach(function(id){ document.getElementById(id).addEventListener('change', resetCap); });
+  document.getElementById('rDist').addEventListener('change', function(){ refreshROffices(); resetCap(); });
+  ['remarkSearch','rCode','rLoc','rText'].forEach(function(id){ document.getElementById(id).addEventListener('input', resetCap); });
+  document.getElementById('remarkClear').addEventListener('click', function(){
+    ['rEquip','rDist','rOffice','rMonth'].forEach(function(id){ document.getElementById(id).value=''; });
+    ['remarkSearch','rCode','rLoc','rText'].forEach(function(id){ document.getElementById(id).value=''; });
+    refreshROffices(); resetCap();
+  });
   renderRemarks();
 
 })();
